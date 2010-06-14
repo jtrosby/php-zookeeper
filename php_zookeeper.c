@@ -1133,8 +1133,39 @@ int php_zookeeper_get_connection_le()
 }
 #endif
 
+static PHP_INI_MH(OnUpdateLogLevel) /* {{{ */
+{
+	if(!strcasecmp(new_value, "error"))
+	{
+		ZK_G(log_level) = ZOO_LOG_LEVEL_ERROR;
+	}
+	else if(!strcasecmp(new_value, "warn"))
+	{
+		ZK_G(log_level) = ZOO_LOG_LEVEL_WARN;
+	}
+	else if(!strcasecmp(new_value, "info"))
+	{
+		ZK_G(log_level) = ZOO_LOG_LEVEL_INFO;
+	}
+	else if(!strcasecmp(new_value, "debug"))
+	{
+		ZK_G(log_level) = ZOO_LOG_LEVEL_DEBUG;
+	}
+	else
+	{
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "zookeeper.log_level must be in set {error, warn, info, debug} ('%s' given)", new_value);
+		return FAILURE;
+	}
+
+	zoo_set_debug_level((ZooLogLevel) ZK_G(log_level));
+
+	return SUCCESS;
+}
+/* }}} */
+
 PHP_INI_BEGIN()
 	STD_PHP_INI_ENTRY("zookeeper.recv_timeout",		"10000",	PHP_INI_ALL,	OnUpdateLongGEZero,	recv_timeout,	zend_php_zookeeper_globals, php_zookeeper_globals)
+	STD_PHP_INI_ENTRY("zookeeper.log_level",		"info",		PHP_INI_ALL,	OnUpdateLogLevel,	log_level,	zend_php_zookeeper_globals, php_zookeeper_globals)
 #ifdef HAVE_ZOOKEEPER_SESSION
 	STD_PHP_INI_ENTRY("zookeeper.session_lock",		"1",		PHP_INI_SYSTEM, OnUpdateBool,		session_lock,	zend_php_zookeeper_globals, php_zookeeper_globals)
 	STD_PHP_INI_ENTRY("zookeeper.sess_lock_wait",	"150000",	PHP_INI_ALL,	OnUpdateLongGEZero,	sess_lock_wait,	zend_php_zookeeper_globals,	php_zookeeper_globals)
@@ -1151,9 +1182,6 @@ PHP_MINIT_FUNCTION(zookeeper)
 	INIT_CLASS_ENTRY(ce, "Zookeeper", zookeeper_class_methods);
 	zookeeper_ce = zend_register_internal_class(&ce TSRMLS_CC);
 	zookeeper_ce->create_object = php_zk_new;
-
-	/* set debug level to warning by default */
-	zoo_set_debug_level(ZOO_LOG_LEVEL_WARN);
 
 	php_zk_register_constants(INIT_FUNC_ARGS_PASSTHRU);
 
