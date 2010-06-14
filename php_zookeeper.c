@@ -1,11 +1,11 @@
 /*
   +----------------------------------------------------------------------+
-  | Copyright (c) 2009 The PHP Group                                     |
+  | Copyright (c) 2010 The PHP Group                                     |
   +----------------------------------------------------------------------+
-  | This source file is subject to version 3.0 of the PHP license,       |
+  | This source file is subject to version 3.01 of the PHP license,      |
   | that is bundled with this package in the file LICENSE, and is        |
   | available through the world-wide-web at the following url:           |
-  | http://www.php.net/license/3_0.txt.                                  |
+  | http://www.php.net/license/3_01.txt.                                 |
   | If you did not receive a copy of the PHP license and are unable to   |
   | obtain it through the world-wide-web, please send a note to          |
   | license@php.net so we can mail you a copy immediately.               |
@@ -38,8 +38,8 @@
 #include <ext/standard/php_smart_str.h>
 
 #include "php_zookeeper.h"
-
-#define DEFAULT_RECV_TIMEOUT 10000
+#include "php_zookeeper_private.h"
+#include "php_zookeeper_session.h"
 
 /****************************************
   Helper macros
@@ -72,6 +72,10 @@ typedef struct {
 } php_zk_t;
 
 static zend_class_entry *zookeeper_ce = NULL;
+
+#ifdef HAVE_ZOOKEEPER_SESSION
+static int le_zookeeper_connection;
+#endif
 
 #if (PHP_MAJOR_VERSION == 5 && PHP_MINOR_VERSION < 3)
 const zend_fcall_info empty_fcall_info = { 0, NULL, NULL, NULL, NULL, 0, NULL, NULL, 0 };
@@ -119,7 +123,7 @@ static void php_zookeeper_connect_impl(INTERNAL_FUNCTION_PARAMETERS, char *host,
 	i_obj = (php_zk_t *) zend_object_store_get_object(object TSRMLS_CC);
 
 	if (fci->size != 0) {
-		cb_data = php_cb_data_new(fci, fcc, 0);
+		cb_data = php_cb_data_new(fci, fcc, 0 TSRMLS_CC);
 	}
 	zk = zookeeper_init(host, (fci->size != 0) ? php_zk_watcher_marshal : NULL,
 						recv_timeout, 0, cb_data, 0);
@@ -141,7 +145,7 @@ static PHP_METHOD(Zookeeper, connect)
 	char *host;
 	zend_fcall_info fci = empty_fcall_info;
 	zend_fcall_info_cache fcc = empty_fcall_info_cache;
-	long recv_timeout = DEFAULT_RECV_TIMEOUT;
+	long recv_timeout = ZK_G(recv_timeout);
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|f!l", &host, &host_len, &fci, &fcc, &recv_timeout) == FAILURE) {
 		return;
@@ -161,7 +165,7 @@ static PHP_METHOD(Zookeeper, __construct)
 	char *host = NULL;
 	zend_fcall_info fci = empty_fcall_info;
 	zend_fcall_info_cache fcc = empty_fcall_info_cache;
-	long recv_timeout = DEFAULT_RECV_TIMEOUT;
+	long recv_timeout = ZK_G(recv_timeout);
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|sf!l", &host, &host_len, &fci, &fcc, &recv_timeout) == FAILURE) {
 		ZVAL_NULL(object);
@@ -259,7 +263,7 @@ static PHP_METHOD(Zookeeper, getChildren)
 	ZK_METHOD_FETCH_OBJECT;
 
 	if (fci.size != 0) {
-		cb_data = php_cb_data_new(&fci, &fcc, 1);
+		cb_data = php_cb_data_new(&fci, &fcc, 1 TSRMLS_CC);
 	}
 	status = zoo_wget_children(i_obj->zk, path,
 							   (fci.size != 0) ? php_zk_watcher_marshal : NULL,
@@ -301,7 +305,7 @@ static PHP_METHOD(Zookeeper, get)
 	ZK_METHOD_FETCH_OBJECT;
 
 	if (fci.size != 0) {
-		cb_data = php_cb_data_new(&fci, &fcc, 1);
+		cb_data = php_cb_data_new(&fci, &fcc, 1 TSRMLS_CC);
 	}
 	status = zoo_wget(i_obj->zk, path, (fci.size != 0) ? php_zk_watcher_marshal : NULL,
 					  cb_data, buffer, &buffer_len, &stat);
@@ -340,7 +344,7 @@ static PHP_METHOD(Zookeeper, exists)
 	ZK_METHOD_FETCH_OBJECT;
 
 	if (fci.size != 0) {
-		cb_data = php_cb_data_new(&fci, &fcc, 1);
+		cb_data = php_cb_data_new(&fci, &fcc, 1 TSRMLS_CC);
 	}
 	status = zoo_wexists(i_obj->zk, path, (fci.size != 0) ? php_zk_watcher_marshal : NULL,
 						 cb_data, &stat);
@@ -581,7 +585,7 @@ static PHP_METHOD(Zookeeper, addAuth)
 	ZK_METHOD_FETCH_OBJECT;
 
 	if (fci.size != 0) {
-		cb_data = php_cb_data_new(&fci, &fcc, 0);
+		cb_data = php_cb_data_new(&fci, &fcc, 0 TSRMLS_CC);
 	}
 	status = zoo_add_auth(i_obj->zk, scheme, cert, cert_len,
 						  (fci.size != 0) ? php_zk_completion_marshal : NULL, cb_data);
@@ -613,7 +617,7 @@ static PHP_METHOD(Zookeeper, setWatcher)
 	if (i_obj->cb_data) {
 		zend_hash_index_del(&ZK_G(callbacks), i_obj->cb_data->h);
 	}
-	cb_data = php_cb_data_new(&fci, &fcc, 0);
+	cb_data = php_cb_data_new(&fci, &fcc, 0 TSRMLS_CC);
 	zoo_set_watcher(i_obj->zk, php_zk_watcher_marshal);
 	i_obj->cb_data = cb_data;
 
@@ -881,6 +885,8 @@ static void php_aclv_to_array(const struct ACL_vector *aclv, zval *array)
 static void php_zk_init_globals(zend_php_zookeeper_globals *php_zookeeper_globals_p TSRMLS_DC)
 {
 	zend_hash_init_ex(&ZK_G(callbacks), 5, NULL, (dtor_func_t)php_cb_data_destroy, 1, 0);
+	php_zookeeper_globals_p->recv_timeout = 10000;
+	php_zookeeper_globals_p->session_lock = 1;
 }
 
 static void php_zk_destroy_globals(zend_php_zookeeper_globals *php_zookeeper_globals_p TSRMLS_DC)
@@ -1110,11 +1116,38 @@ static void php_zk_register_constants(INIT_FUNC_ARGS)
 }
 /* }}} */
 
+#ifdef HAVE_ZOOKEEPER_SESSION
+ZEND_RSRC_DTOR_FUNC(php_zookeeper_connection_dtor)
+{
+	if (rsrc->ptr) {
+		php_zookeeper_session *zk_sess = (php_zookeeper_session *)rsrc->ptr;
+		zookeeper_close(zk_sess->zk);
+		pefree(zk_sess, 1);
+		rsrc->ptr = NULL;
+	}
+}
+
+int php_zookeeper_get_connection_le()
+{
+	return le_zookeeper_connection;
+}
+#endif
+
+PHP_INI_BEGIN()
+	STD_PHP_INI_ENTRY("zookeeper.recv_timeout",		"10000",	PHP_INI_ALL,	OnUpdateLongGEZero,	recv_timeout,	zend_php_zookeeper_globals, php_zookeeper_globals)
+#ifdef HAVE_ZOOKEEPER_SESSION
+	STD_PHP_INI_ENTRY("zookeeper.session_lock",		"1",		PHP_INI_SYSTEM, OnUpdateBool,		session_lock,	zend_php_zookeeper_globals, php_zookeeper_globals)
+	STD_PHP_INI_ENTRY("zookeeper.sess_lock_wait",	"150000",	PHP_INI_ALL,	OnUpdateLongGEZero,	sess_lock_wait,	zend_php_zookeeper_globals,	php_zookeeper_globals)
+#endif
+PHP_INI_END()
+
 /* {{{ PHP_MINIT_FUNCTION */
 PHP_MINIT_FUNCTION(zookeeper)
 {
 	zend_class_entry ce;
-
+#ifdef HAVE_ZOOKEEPER_SESSION
+	le_zookeeper_connection = zend_register_list_destructors_ex(NULL, php_zookeeper_connection_dtor, "Zookeeper persistent connection (sessions)", module_number);
+#endif
 	INIT_CLASS_ENTRY(ce, "Zookeeper", zookeeper_class_methods);
 	zookeeper_ce = zend_register_internal_class(&ce TSRMLS_CC);
 	zookeeper_ce->create_object = php_zk_new;
@@ -1131,6 +1164,10 @@ PHP_MINIT_FUNCTION(zookeeper)
 	php_zk_init_globals(&php_zookeeper_globals TSRMLS_CC);
 #endif
 
+	REGISTER_INI_ENTRIES();
+#ifdef HAVE_ZOOKEEPER_SESSION
+	php_session_register_module(ps_zookeeper_ptr);
+#endif
 	return SUCCESS;
 }
 /* }}} */
@@ -1144,6 +1181,7 @@ PHP_MSHUTDOWN_FUNCTION(zookeeper)
     php_zk_destroy_globals(&php_zookeeper_globals TSRMLS_CC);
 #endif
 
+	UNREGISTER_INI_ENTRIES();
 	return SUCCESS;
 }
 /* }}} */
