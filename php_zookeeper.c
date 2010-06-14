@@ -1165,7 +1165,7 @@ static PHP_INI_MH(OnUpdateLogLevel) /* {{{ */
 
 PHP_INI_BEGIN()
 	STD_PHP_INI_ENTRY("zookeeper.recv_timeout",		"10000",	PHP_INI_ALL,	OnUpdateLongGEZero,	recv_timeout,	zend_php_zookeeper_globals, php_zookeeper_globals)
-	STD_PHP_INI_ENTRY("zookeeper.log_level",		"info",		PHP_INI_ALL,	OnUpdateLogLevel,	log_level,	zend_php_zookeeper_globals, php_zookeeper_globals)
+	STD_PHP_INI_ENTRY("zookeeper.log_level",		"warn",		PHP_INI_ALL,	OnUpdateLogLevel,	log_level,	zend_php_zookeeper_globals, php_zookeeper_globals)
 #ifdef HAVE_ZOOKEEPER_SESSION
 	STD_PHP_INI_ENTRY("zookeeper.session_lock",		"1",		PHP_INI_SYSTEM, OnUpdateBool,		session_lock,	zend_php_zookeeper_globals, php_zookeeper_globals)
 	STD_PHP_INI_ENTRY("zookeeper.sess_lock_wait",	"150000",	PHP_INI_ALL,	OnUpdateLongGEZero,	sess_lock_wait,	zend_php_zookeeper_globals,	php_zookeeper_globals)
